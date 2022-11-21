@@ -1,0 +1,32 @@
+name: webserver-pns
+version: 0.0.1.0
+license: MIT
+author: "Alexander Kobjolke"
+maintainer: "alex@jakalx.net"
+copyright: "Alexander Kobjolke 2022"
+
+extra-source-files:
+  - README.org
+
+dependencies:
+  - base >= 4.13 && < 5
+  - sockets-and-pipes ^>= 0.3
+
+ghc-options:
+  - -Wall
+  - -Wunused-packages
+  - -fdefer-type-holes
+
+library:
+  source-dirs: src
+  verbatim:
+    default-language: GHC2021
+
+executables:
+  hello:
+    source-dirs: app
+    main: hello.hs
+    dependencies:
+      - haskell-template
+    verbatim:
+      default-language: GHC2021

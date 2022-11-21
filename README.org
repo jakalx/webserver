@@ -1,0 +1,10 @@
+#+TITLE: Simple Haskell Template
+
+* Simple Haskell Template
+
+This template repository sets up a simple Haskell project using nix fl akes and sets up integration with
+    - hpack
+    - fourmolu
+    - hlint
+    - haskell-language-server
+    - validity based testing
