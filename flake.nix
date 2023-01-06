@@ -16,7 +16,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        haskellPackages = pkgs.haskell.packages.ghc924;
+        haskellPackages = pkgs.haskell.packages.ghc92;
 
         jailbreakUnbreak = pkg:
           pkgs.haskell.lib.doJailbreak (pkg.overrideAttrs (_: { meta = { }; }));
@@ -46,7 +46,7 @@
             src = ./.;
             hooks = {
               nixfmt.enable = true;
-              fourmolu.enable = true;
+              #              fourmolu.enable = true;
               hpack.enable = true;
               hlint.enable = true;
             };
@@ -62,7 +62,7 @@
 
           buildInputs = with pkgs; [
             haskellPackages.haskell-language-server
-            haskellPackages.fourmolu
+            #            haskellPackages.fourmolu
             cabal-install
             ghcid
             nixfmt
