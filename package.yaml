@@ -44,8 +44,21 @@ library:
   source-dirs: src
 
 executables:
-  hello:
+  snp-server:
     source-dirs: app
     main: webserver.hs
     dependencies:
       - webserver-snp
+
+tests:
+  spec:
+    cpp-options: -DTEST
+    main: Spec.hs
+    source-dirs:
+      - test
+      - src
+    dependencies:
+      - webserver-snp
+      - hspec
+      - QuickCheck
+    build-tools: hspec-discover

@@ -27,13 +27,12 @@ import Data.ByteString.Builder qualified as BSB
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Data.Text.IO qualified as T
-import Data.Time qualified as Time
 
 import Network.Socket (Socket)
 import Network.Socket qualified as S
 import Network.Socket.ByteString qualified as S
 
-import Network.Simple.TCP (serve, HostPreference(..))
+-- import Network.Simple.TCP (serve, HostPreference(..))
 import Network.Simple.TCP qualified as Net
 
 getDataDir :: MonadIO m => m FilePath
@@ -203,22 +202,8 @@ helloResponse = Response statusLine [typ, len] (Just (MessageBody "Hello!"))
     typ = HeaderField (FieldName "Content-Type") (FieldValue "text/plain; charset=us-ascii")
     len = HeaderField (FieldName "Content-Length") (FieldValue "6")
 
-helloRequest :: Request
-helloRequest = Request start [host, lang] Nothing
-  where
-    start = RequestLine (Method [A.string|GET|]) (RequestTarget "/hello.txt") http_1_1
-    host = HeaderField (FieldName "Host") (FieldValue "www.example.com")
-    lang = HeaderField (FieldName "Accept-Language") (FieldValue "en, mi")
-
 -- Chapter 7 - Encoding
 
-time :: IO () -> IO ()
-time action = do
-  a <- Time.getCurrentTime
-  action
-  b <- Time.getCurrentTime
-  print $ Time.diffUTCTime b a
-  
 crlf :: [A.Char]
 crlf = [A.CarriageReturn, A.LineFeed]
 

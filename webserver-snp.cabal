@@ -48,7 +48,7 @@ library
     , unfork ==1.0.*
   default-language: GHC2021
 
-executable hello
+executable snp-server
   main-is: webserver.hs
   other-modules:
       Paths_webserver_snp
@@ -69,6 +69,49 @@ executable hello
     , containers >=0.6.2.1 && <0.7
     , directory >=1.3.6 && <1.4
     , filepath ==1.4.*
+    , list-transformer >=1.0.7 && <1.1
+    , network >=3.1.2 && <3.2
+    , network-simple >=0.4.2 && <0.5
+    , relude >=1.0 && <1.1 || >=1.1 && <1.2
+    , resourcet >=1.2.4 && <1.3
+    , safe-exceptions >=0.1.7.0 && <0.2
+    , stm ==2.5.*
+    , text >=1.2.4.1 && <1.3
+    , time
+    , unfork ==1.0.*
+    , webserver-snp
+  default-language: GHC2021
+
+test-suite spec
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      BookSpec
+      Book
+      Paths_webserver_snp
+  hs-source-dirs:
+      test
+      src
+  default-extensions:
+      GHC2021
+      BlockArguments
+  ghc-options: -Wall -Wunused-packages -fdefer-typed-holes
+  cpp-options: -DTEST
+  build-tool-depends:
+      hspec-discover:hspec-discover
+  build-depends:
+      QuickCheck
+    , aeson ==2.0.*
+    , ascii >=1.2.3.0 && <1.3
+    , async >=2.2.2 && <2.3
+    , attoparsec >=0.13 && <0.14 || >=0.14 && <0.15
+    , base >=4.14 && <4.15 || >=4.15 && <4.16 || >=4.16 && <4.17
+    , blaze-html ==0.9.*
+    , bytestring >=0.10 && <0.11 || >=0.11 && <0.12
+    , containers >=0.6.2.1 && <0.7
+    , directory >=1.3.6 && <1.4
+    , filepath ==1.4.*
+    , hspec
     , list-transformer >=1.0.7 && <1.1
     , network >=3.1.2 && <3.2
     , network-simple >=0.4.2 && <0.5
