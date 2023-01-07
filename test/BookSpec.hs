@@ -63,11 +63,12 @@ spec = do
         it "asciiOk 'Hello!' returns helloResponse" do
             asciiOk "Hello!" `shouldBe` helloResponse
 
-        it "countHelloAscii describes 0 page visits" do
+        it "countHelloAscii describes page visits correctly" do
             countHelloAscii 0 `shouldBe` "Hello!\r\nThis page has never been viewed."
-
-        it "countHelloAscii describes 1 page visit" do
             countHelloAscii 1 `shouldBe` "Hello!\r\nThis page has been viewed once."
-
-        it "countHelloAscii describes several page visits" do
             countHelloAscii 10 `shouldBe` "Hello!\r\nThis page has been viewed 10 times."
+
+        it "countHelloText describes page visits correctly" do
+            countHelloText 0 `shouldBe` "Hello! \9835\r\nThis page has never been viewed."
+            countHelloText 1 `shouldBe` "Hello! \9835\r\nThis page has been viewed once."
+            countHelloText 10 `shouldBe` "Hello! \9835\r\nThis page has been viewed 10 times."

@@ -21,6 +21,11 @@ import System.IO qualified as IO
 import Control.Exception.Safe qualified as Ex
 import Control.Monad.Trans.Resource (ReleaseKey, ResourceT, allocate, runResourceT)
 
+import Data.Aeson (ToJSON (toJSON), (.=))
+import Data.Aeson qualified as J
+import Data.Aeson.Key qualified as J.Key
+import Data.Aeson.KeyMap qualified as J.KeyMap
+
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as BSB
 import Data.ByteString.Conversion qualified as BS
@@ -29,6 +34,14 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Data.Text.IO qualified as T
+import Data.Text.Lazy qualified as LT
+import Data.Text.Lazy.Builder qualified as TB
+import Data.Text.Lazy.Builder.Int qualified as TB
+import Data.Text.Lazy.Encoding qualified as LT
+
+import Text.Blaze.Html (Html, toHtml)
+import Text.Blaze.Html.Renderer.Utf8 (renderHtml)
+import Text.Blaze.Html5 qualified as HTML
 
 import Network.Socket (Socket)
 import Network.Socket qualified as S
@@ -331,8 +344,11 @@ asciiOk :: LBS.ByteString -> Response
 asciiOk str = Response (status ok) [typ, len] (Just body)
   where
     typ = contentType plainAscii
-    len = contentLength . fromIntegral . LBS.length $ str
+    len = contentLength . bodyLength $ body
     body = MessageBody str
+
+bodyLength :: MessageBody -> Word64
+bodyLength (MessageBody bytes) = fromIntegral . LBS.length $ bytes
 
 sendResponse :: MonadIO m => Socket -> Response -> m ()
 sendResponse s = Net.sendLazy s . BSB.toLazyByteString . encodeResponse
@@ -341,3 +357,76 @@ stuckCountingServer :: IO ()
 stuckCountingServer = serve @IO HostAny "8000" \(s, _) -> do
     let count = 0
     sendResponse s (asciiOk (countHelloAscii count))
+
+-- chapter 9 - UTF-8
+
+plainUtf8 :: FieldValue
+plainUtf8 = FieldValue [A.string|text/plain; charset=utf-8|]
+
+htmlUtf8 :: FieldValue
+htmlUtf8 = FieldValue [A.string|text/html; charset=utf-8|]
+
+json :: FieldValue
+json = FieldValue [A.string|application/json|]
+
+countHelloGreeting :: LT.Text
+countHelloGreeting = "Hello! \9835"
+
+countHelloMessage :: Natural -> LT.Text
+countHelloMessage count = TB.toLazyText $ case count of
+    0 -> "This page has never been viewed."
+    1 -> "This page has been viewed once."
+    _ -> "This page has been viewed " <> TB.decimal count <> " times."
+
+countHelloText :: Natural -> LT.Text
+countHelloText count = countHelloGreeting <> "\r\n" <> countHelloMessage count
+
+textOk :: LT.Text -> Response
+textOk str = Response (status ok) [typ, len] (Just body)
+  where
+    typ = contentType plainUtf8
+    len = contentLength . bodyLength $ body
+    body = MessageBody $ LT.encodeUtf8 str
+
+stuckCountingServerText :: IO ()
+stuckCountingServerText = serve @IO HostAny "8000" \(s, _) -> do
+    let count = 0
+    sendResponse s $ textOk $ countHelloText count
+
+-- HTML encoding
+
+countHelloHtml :: Natural -> Html
+countHelloHtml count = HTML.docType <> document
+  where
+    document = HTML.html $ documentMetaData <> documentBody
+
+    documentMetaData = HTML.head title
+    title = HTML.title "Sockets & Pipes Welcome page"
+
+    documentBody = HTML.body $ greeting <> HTML.hr <> hitCounter
+
+    greeting = HTML.p . toHtml $ countHelloGreeting
+    hitCounter = HTML.p . toHtml $ countHelloMessage count
+
+htmlOk :: Html -> Response
+htmlOk html = Response (status ok) [typ, len] (Just body)
+  where
+    typ = contentType htmlUtf8
+    len = contentLength . bodyLength $ body
+    body = MessageBody $ renderHtml html
+
+stuckCountingServerHtml :: IO ()
+stuckCountingServerHtml = serve @IO HostAny "8000" \(s, _) -> do
+    let count = 0
+    sendResponse s $ htmlOk $ countHelloHtml count
+
+-- JSON encoding
+
+countHelloJson :: Natural -> J.Value
+countHelloJson count = toJSON $ J.KeyMap.fromList [greetingJson, hitsJson]
+  where
+    greetingJson = (J.Key.fromString "greeting", toJSON countHelloGreeting)
+    hitsJson = (J.Key.fromString "hits", toJSON $ J.KeyMap.fromList [numberJson, messageJson])
+
+    numberJson = (J.Key.fromString "count", toJSON count)
+    messageJson = (J.Key.fromString "message", toJSON $ countHelloMessage count)
