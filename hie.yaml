@@ -1,0 +1,16 @@
+cradle:
+  cabal:
+    - path: "src"
+      component: "lib:webserver-snp"
+
+    - path: "app/webserver.hs"
+      component: "webserver-snp:exe:snp-server"
+
+    - path: "app/Paths_webserver_snp.hs"
+      component: "webserver-snp:exe:snp-server"
+
+    - path: "test"
+      component: "webserver-snp:test:spec"
+
+    - path: "src"
+      component: "webserver-snp:test:spec"

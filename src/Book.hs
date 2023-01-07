@@ -1,3 +1,4 @@
+{-# LANGUAGE GHC2021 #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE StrictData #-}
@@ -5,8 +6,9 @@
 -- | Webserver implementation based on the book "Sockets-and-Pipes"
 module Book where
 
-import Relude
 import Prelude ()
+
+import Relude
 
 import ASCII qualified as A
 import ASCII.Char qualified as A
@@ -21,6 +23,7 @@ import Control.Monad.Trans.Resource (ReleaseKey, ResourceT, allocate, runResourc
 
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as BSB
+import Data.ByteString.Conversion qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 
 import Data.Text qualified as T
@@ -31,7 +34,7 @@ import Network.Socket (Socket)
 import Network.Socket qualified as S
 import Network.Socket.ByteString qualified as S
 
--- import Network.Simple.TCP (serve, HostPreference(..))
+import Network.Simple.TCP (HostPreference (..), serve)
 import Network.Simple.TCP qualified as Net
 
 getDataDir :: MonadIO m => m FilePath
@@ -201,7 +204,7 @@ helloResponse :: Response
 helloResponse = Response statusLine [typ, len] (Just (MessageBody "Hello!"))
   where
     statusLine = StatusLine http_1_1 (StatusCode Digit2 Digit0 Digit0) (ReasonPhrase "OK")
-    typ = HeaderField (FieldName "Content-Type") (FieldValue "text/plain; charset=us-ascii")
+    typ = contentType plainAscii
     len = HeaderField (FieldName "Content-Length") (FieldValue "6")
 
 -- Chapter 7 - Encoding
@@ -266,7 +269,6 @@ encodeResponse :: Response -> BSB.Builder
 encodeResponse (Response statusLine headerFields optionalBody) =
     mconcat
         [ encodeStatusLine statusLine
-        , encodeLineEnd
         , repeatedlyEncode encodeHeaderField headerFields
         , encodeLineEnd
         , optionallyEncode encodeMessageBody optionalBody
@@ -280,6 +282,7 @@ encodeStatusLine (StatusLine version statusCode reasonPhrase) =
         , encodeStatusCode statusCode
         , A.lift [A.Space]
         , encodeReasonPhrase reasonPhrase
+        , encodeLineEnd
         ]
 
 encodeStatusCode :: StatusCode -> BSB.Builder
@@ -287,3 +290,54 @@ encodeStatusCode (StatusCode x y z) = A.lift [x, y, z]
 
 encodeReasonPhrase :: ReasonPhrase -> BSB.Builder
 encodeReasonPhrase (ReasonPhrase reasonPhrase) = BSB.byteString reasonPhrase
+
+-- Chapter 8 - Responding
+
+countHelloAscii :: Natural -> LBS.ByteString
+countHelloAscii count =
+    BSB.toLazyByteString $
+        mconcat
+            [ [A.string|Hello!|]
+            , encodeLineEnd
+            , [A.string|This page has |]
+            , case count of
+                0 -> [A.string|never been viewed.|]
+                1 -> [A.string|been viewed once.|]
+                _ -> [A.string|been viewed |] <> A.showIntegralDecimal count <> [A.string| times.|]
+            ]
+
+data Status = Status StatusCode ReasonPhrase
+    deriving (Eq, Show)
+
+ok :: Status
+ok =
+    Status
+        (StatusCode Digit2 Digit0 Digit0)
+        (ReasonPhrase [A.string|OK|])
+
+status :: Status -> StatusLine
+status (Status code phrase) = StatusLine http_1_1 code phrase
+
+contentType :: FieldValue -> HeaderField
+contentType = HeaderField (FieldName [A.string|Content-Type|])
+
+plainAscii :: FieldValue
+plainAscii = FieldValue [A.string|text/plain; charset=us-ascii|]
+
+contentLength :: Word64 -> HeaderField
+contentLength len = HeaderField (FieldName [A.string|Content-Length|]) (FieldValue $ BS.toByteString' len)
+
+asciiOk :: LBS.ByteString -> Response
+asciiOk str = Response (status ok) [typ, len] (Just body)
+  where
+    typ = contentType plainAscii
+    len = contentLength . fromIntegral . LBS.length $ str
+    body = MessageBody str
+
+sendResponse :: MonadIO m => Socket -> Response -> m ()
+sendResponse s = Net.sendLazy s . BSB.toLazyByteString . encodeResponse
+
+stuckCountingServer :: IO ()
+stuckCountingServer = serve @IO HostAny "8000" \(s, _) -> do
+    let count = 0
+    sendResponse s (asciiOk (countHelloAscii count))
