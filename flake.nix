@@ -46,7 +46,7 @@
             src = ./.;
             hooks = {
               nixfmt.enable = true;
-              #              fourmolu.enable = true;
+              fourmolu.enable = true;
               hpack.enable = true;
               hlint.enable = true;
             };
@@ -62,7 +62,7 @@
 
           buildInputs = with pkgs; [
             haskellPackages.haskell-language-server
-            #            haskellPackages.fourmolu
+            haskellPackages.fourmolu
             cabal-install
             ghcid
             nixfmt
