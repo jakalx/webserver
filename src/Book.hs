@@ -437,3 +437,17 @@ jsonOk str = Response (status ok) [typ, len] (Just body)
     typ = contentType json
     len = contentLength . bodyLength $ body
     body = MessageBody $ J.encode str
+
+increment :: TVar Natural -> STM Natural
+increment var = do
+    val <- readTVar var
+    let !val' = val + 1
+    writeTVar var val'
+    pure val
+
+countingServer :: IO ()
+countingServer = do
+    hitCounter <- atomically $ newTVar @Natural 0
+    serve @IO HostAny "8000" \(s, _) -> do
+        count <- atomically $ increment hitCounter
+        sendResponse s $ jsonOk $ countHelloJson count

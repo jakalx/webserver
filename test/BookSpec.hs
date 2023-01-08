@@ -6,12 +6,15 @@ module BookSpec (spec) where
 import Prelude ()
 
 import Book
+import Data.Aeson ((.:))
+import Data.Aeson qualified as J
+import Data.Aeson.Types qualified as J
 import Relude
 import Test.Hspec
 
 import Test.Hspec.QuickCheck
 
--- import Test.QuickCheck
+import Test.QuickCheck
 
 import Data.ByteString.Builder qualified as BSB
 
@@ -21,6 +24,9 @@ helloRequest = Request start [host, lang] Nothing
     start = RequestLine (Method "GET") (RequestTarget "/hello.txt") http_1_1
     host = HeaderField (FieldName "Host") (FieldValue "www.example.com")
     lang = HeaderField (FieldName "Accept-Language") (FieldValue "en, mi")
+
+parseCount :: J.Value -> J.Parser Integer
+parseCount = J.withObject "hitCount" $ \o -> o .: "hits" >>= (.: "count")
 
 -- excercise 22 Overflow
 mid :: Word8 -> Word8 -> Word8
@@ -72,3 +78,9 @@ spec = do
             countHelloText 0 `shouldBe` "Hello! \9835\r\nThis page has never been viewed."
             countHelloText 1 `shouldBe` "Hello! \9835\r\nThis page has been viewed once."
             countHelloText 10 `shouldBe` "Hello! \9835\r\nThis page has been viewed 10 times."
+
+        prop "countHelloJson describes page visits correctly" $
+            \(NonNegative @Integer count) ->
+              case J.parse parseCount (countHelloJson $ fromIntegral count) of
+                J.Success count' -> count == count'
+                _ -> False
