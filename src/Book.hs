@@ -21,10 +21,8 @@ import System.IO qualified as IO
 import Control.Exception.Safe qualified as Ex
 import Control.Monad.Trans.Resource (ReleaseKey, ResourceT, allocate, runResourceT)
 
-import Data.Aeson (ToJSON (toJSON), (.=))
+import Data.Aeson ((.=))
 import Data.Aeson qualified as J
-import Data.Aeson.Key qualified as J.Key
-import Data.Aeson.KeyMap qualified as J.KeyMap
 
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as BSB
@@ -423,10 +421,19 @@ stuckCountingServerHtml = serve @IO HostAny "8000" \(s, _) -> do
 -- JSON encoding
 
 countHelloJson :: Natural -> J.Value
-countHelloJson count = toJSON $ J.KeyMap.fromList [greetingJson, hitsJson]
-  where
-    greetingJson = (J.Key.fromString "greeting", toJSON countHelloGreeting)
-    hitsJson = (J.Key.fromString "hits", toJSON $ J.KeyMap.fromList [numberJson, messageJson])
+countHelloJson count =
+    J.object
+        [ "greeting" .= countHelloGreeting
+        , "hits"
+            .= J.object
+                [ "count" .= count
+                , "message" .= countHelloMessage count
+                ]
+        ]
 
-    numberJson = (J.Key.fromString "count", toJSON count)
-    messageJson = (J.Key.fromString "message", toJSON $ countHelloMessage count)
+jsonOk :: J.Value -> Response
+jsonOk str = Response (status ok) [typ, len] (Just body)
+  where
+    typ = contentType json
+    len = contentLength . bodyLength $ body
+    body = MessageBody $ J.encode str
