@@ -37,6 +37,8 @@ import Data.Text.Lazy.Builder qualified as TB
 import Data.Text.Lazy.Builder.Int qualified as TB
 import Data.Text.Lazy.Encoding qualified as LT
 
+import Data.Time qualified as Time
+
 import Text.Blaze.Html (Html, toHtml)
 import Text.Blaze.Html.Renderer.Utf8 (renderHtml)
 import Text.Blaze.Html5 qualified as HTML
@@ -451,3 +453,19 @@ countingServer = do
     serve @IO HostAny "8000" \(s, _) -> do
         count <- atomically $ increment hitCounter
         sendResponse s $ jsonOk $ countHelloJson count
+
+-- exercise 27
+
+updateTime :: TVar (Maybe Time.UTCTime) -> Time.UTCTime -> STM (Maybe Time.NominalDiffTime)
+updateTime var timePoint = do
+    prevTimePoint <- readTVar var
+    writeTVar var (Just timePoint)
+    pure $ Time.diffUTCTime timePoint <$> prevTimePoint
+
+timingServer :: IO ()
+timingServer = do
+    timeOfLastRequest <- atomically $ newTVar @(Maybe Time.UTCTime) Nothing
+    serve @IO HostAny "8000" \(s, _) -> do
+        now <- Time.getCurrentTime
+        delta <- atomically $ updateTime timeOfLastRequest now
+        sendResponse s $ jsonOk $ J.toJSON delta
