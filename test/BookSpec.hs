@@ -9,6 +9,7 @@ import Book
 import Data.Aeson ((.:))
 import Data.Aeson qualified as J
 import Data.Aeson.Types qualified as J
+import Data.List qualified as L
 import Relude
 import Test.Hspec
 
@@ -25,6 +26,20 @@ helloRequest = Request start [host, lang] Nothing
     host = HeaderField (FieldName "Host") (FieldValue "www.example.com")
     lang = HeaderField (FieldName "Accept-Language") (FieldValue "en, mi")
 
+balanced :: Eq a => [(a, a)] -> [a] -> Bool
+balanced pairs list = go [] (filter isRelevant list)
+  where
+    isRelevant c = isOpening c || isClosing c
+    isOpening c = c `elem` (fst <$> pairs)
+    isClosing c = c `elem` (snd <$> pairs)
+
+    go [] [] = True
+    go _  [] = False
+    go stack (x:xs) = case (stack, L.lookup x pairs) of
+                        (_, Just c) -> go (c:stack) xs
+                        (c:cs, _) -> x == c && go cs xs
+                        _ -> False
+
 parseCount :: J.Value -> J.Parser Integer
 parseCount = J.withObject "hitCount" $ \o -> o .: "hits" >>= (.: "count")
 
@@ -35,8 +50,19 @@ mid a b = fromIntegral $ (a' + b') `div` 2
     a' = toInteger a
     b' = toInteger b
 
+parens :: [(Char, Char)]
+parens = [('(', ')'), ('{','}'), ('[',']')]
+
 spec :: Spec
 spec = do
+    describe "balanced checks for balanced pairs" do
+      it "balanced parens are balanced" do
+        balanced parens "{}()[]({[]})" `shouldBe` True
+      it "unbalanced parens are unbalanced" do
+        balanced parens "(}" `shouldBe` False
+      it "intermixed elements are ignoredb" do
+        balanced parens "(abced efghi)" `shouldBe` True
+
     describe "Excercise 22 - Overflow" do
         it "mid 10 30 is 20" do
             mid 10 30 `shouldBe` 20
