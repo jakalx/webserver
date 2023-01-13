@@ -46,7 +46,7 @@
             src = ./.;
             hooks = {
               nixfmt.enable = true;
-              fourmolu.enable = true;
+              # fourmolu.enable = true;
               hpack.enable = true;
               hlint.enable = true;
             };
