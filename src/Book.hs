@@ -278,12 +278,17 @@ repeatedlyEncode = foldMap
 optionallyEncode :: (a -> BSB.Builder) -> Maybe a -> BSB.Builder
 optionallyEncode = foldMap
 
+encodeHeaders :: [HeaderField] -> BSB.Builder
+encodeHeaders = (<> encodeLineEnd) . repeatedlyEncode encodeHeaderField
+
+encodeTrailers :: [HeaderField] -> BSB.Builder
+encodeTrailers = encodeHeaders
+
 encodeResponse :: Response -> BSB.Builder
 encodeResponse (Response statusLine headerFields optionalBody) =
     mconcat
         [ encodeStatusLine statusLine
-        , repeatedlyEncode encodeHeaderField headerFields
-        , encodeLineEnd
+        , encodeHeaders headerFields
         , optionallyEncode encodeMessageBody optionalBody
         ]
 
@@ -469,3 +474,62 @@ timingServer = do
         now <- Time.getCurrentTime
         delta <- atomically $ updateTime timeOfLastRequest now
         sendResponse s $ jsonOk $ J.toJSON delta
+
+-- chapter 11 - Chunks
+
+data Chunk = Chunk ChunkSize ChunkData
+    deriving (Eq, Show)
+newtype ChunkSize = ChunkSize Natural
+    deriving (Eq, Show)
+newtype ChunkData = ChunkData BS.ByteString
+    deriving (Eq, Show)
+
+dataChunk :: ChunkData -> Chunk
+dataChunk chunk = Chunk (chunkDataSize chunk) chunk
+
+chunkDataSize :: ChunkData -> ChunkSize
+chunkDataSize (ChunkData chunk) =
+    case toIntegralSized @Int @Natural (BS.length chunk) of
+        Just n -> ChunkSize n
+        _ -> error "BS.length is always >= 0, i.e. Natural"
+
+encodeChunk :: Chunk -> BSB.Builder
+encodeChunk (Chunk chunkSize chunkData) =
+    mconcat
+        [ encodeChunkSize chunkSize
+        , encodeLineEnd
+        , encodeChunkData chunkData
+        , encodeLineEnd
+        ]
+
+encodeChunkSize :: ChunkSize -> BSB.Builder
+encodeChunkSize (ChunkSize sz) = A.showIntegralHexadecimal A.LowerCase sz
+
+encodeChunkData :: ChunkData -> BSB.Builder
+encodeChunkData (ChunkData bs) = BSB.byteString bs
+
+encodeLastChunk :: BSB.Builder
+encodeLastChunk = encodeChunkSize (ChunkSize 0) <> encodeLineEnd
+
+transferEncoding :: FieldValue -> HeaderField
+transferEncoding = HeaderField (FieldName [A.string|Transfer-Encoding|])
+
+chunked :: FieldValue
+chunked = FieldValue [A.string|chunked|]
+
+streamingFileServer :: IO ()
+streamingFileServer = do
+    serve @IO HostAny "8000" \(s, _) -> runResourceT @IO do
+        (_, h) <- dataBinaryResource "stream.txt" ReadMode
+        sendBSB s (encodeStatusLine (status ok))
+        sendBSB s (encodeHeaders [transferEncoding chunked])
+        liftIO $
+            repeatUntil
+                (BS.hGetSome h 1024)
+                BS.null
+                (sendBSB s . encodeChunk . dataChunk . ChunkData)
+        sendBSB s encodeLastChunk
+        sendBSB s (encodeTrailers [])
+
+sendBSB :: MonadIO m => Socket -> BSB.Builder -> m ()
+sendBSB s = Net.sendLazy s . BSB.toLazyByteString

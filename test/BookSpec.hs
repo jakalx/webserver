@@ -17,6 +17,8 @@ import Test.Hspec.QuickCheck
 
 import Test.QuickCheck
 
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Builder qualified as BSB
 
 helloRequest :: Request
@@ -110,3 +112,15 @@ spec = do
               case J.parse parseCount (countHelloJson $ fromIntegral count) of
                 J.Success count' -> count == count'
                 _ -> False
+
+    describe "Chapter 11 - Chunk" do
+      describe "dataChunk" do
+        prop "creates Chunk out of a DataChunk" $ \str ->
+          let
+            bs = LBS.toStrict . BSB.toLazyByteString . BSB.stringUtf8 $ str
+            chunkData = ChunkData bs
+            chunk = dataChunk chunkData
+            size = case chunk of
+              Chunk (ChunkSize sz) _ -> sz
+          in
+            size == fromIntegral (BS.length bs)
