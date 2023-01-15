@@ -62,4 +62,5 @@ tests:
       - webserver-snp
       - hspec
       - QuickCheck
+      - quickcheck-instances
     build-tools: hspec-discover
