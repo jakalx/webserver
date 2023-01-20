@@ -1,6 +1,7 @@
 {-# LANGUAGE GHC2021 #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
 
 -- | Webserver implementation based on the book "Sockets-and-Pipes"
@@ -38,6 +39,9 @@ import Data.Text.Lazy.Builder.Int qualified as TB
 import Data.Text.Lazy.Encoding qualified as LT
 
 import Data.Time qualified as Time
+
+import List.Transformer (ListT, runListT)
+import List.Transformer qualified as ListT
 
 import Text.Blaze.Html (Html, toHtml)
 import Text.Blaze.Html.Renderer.Utf8 (renderHtml)
@@ -533,3 +537,86 @@ streamingFileServer = do
 
 sendBSB :: MonadIO m => Socket -> BSB.Builder -> m ()
 sendBSB s = Net.sendLazy s . BSB.toLazyByteString
+
+-- Chapter 12
+
+data StreamingResponse = StreamingResponse StatusLine [HeaderField] (Maybe ChunkedBody)
+
+newtype ChunkedBody = ChunkedBody (ListT IO Chunk)
+newtype MaxChunkSize = MaxChunkSize Int
+
+hStreamingResponse :: Handle -> MaxChunkSize -> StreamingResponse
+hStreamingResponse h maxChunkSize = StreamingResponse statusLine headers (Just body)
+  where
+    statusLine = status ok
+    headers = [transferEncoding chunked]
+    body = chunkedBody (hChunks h maxChunkSize)
+
+hChunks :: Handle -> MaxChunkSize -> ListT IO BS.ByteString
+hChunks h (MaxChunkSize maxChunkSize) =
+    listUntil (BS.hGetSome h maxChunkSize) BS.null
+
+chunkedBody :: ListT IO BS.ByteString -> ChunkedBody
+chunkedBody = ChunkedBody . fmap (dataChunk . ChunkData)
+
+encodeStreamingResponse :: StreamingResponse -> ListT IO BS.ByteString
+encodeStreamingResponse (StreamingResponse statusLine headerFields maybeBody) =
+    asum
+        [ selectChunk $ encodeStatusLine statusLine
+        , selectChunk $ encodeHeaders headerFields
+        , do
+            ChunkedBody chunks <- ListT.select @Maybe maybeBody
+            asum
+                [ do
+                    chunk <- chunks
+                    selectChunk $ encodeChunk chunk
+                , selectChunk encodeLastChunk
+                , selectChunk $ encodeTrailers []
+                ]
+        ]
+
+-- | convert a Builder into a stream of strings
+selectChunk :: BSB.Builder -> ListT IO BS.ByteString
+selectChunk = ListT.select @[] . LBS.toChunks . BSB.toLazyByteString
+
+sendStreamingResponse :: Socket -> StreamingResponse -> IO ()
+sendStreamingResponse s r = runListT do
+    bs <- encodeStreamingResponse r
+    Net.send s bs
+
+-- exercise 31 -- listUntilIO
+
+-- ListT.unfold ::
+--   Monad m => (b -> m (Maybe (a, b))) -> b -> ListT m a
+
+unfoldChunk :: Monad m => (a -> Bool) -> m a -> m (Maybe (a, m a))
+unfoldChunk isDone f = do
+    chunk <- f
+    pure $
+        if isDone chunk
+            then Nothing
+            else Just (chunk, f)
+
+listUntil :: Monad m => m a -> (a -> Bool) -> ListT m a
+listUntil nextChunk isDone = ListT.unfold (unfoldChunk isDone) nextChunk
+
+-- execise 32 -- copy greeting file using streams
+
+copyGreetingStream :: IO ()
+copyGreetingStream = runResourceT @IO do
+    (_, src) <- dataBinaryResource "greeting.txt" ReadMode
+    (_, dst) <- dataBinaryResource "greeting2.txt" WriteMode
+    liftIO $ hCopy src dst
+
+hCopy :: Handle -> Handle -> IO ()
+hCopy src dst = runListT @IO do
+    hChunks src (MaxChunkSize 1024) >>= liftIO . BS.hPutStr dst
+
+fileCopyMany :: FilePath -> [FilePath] -> IO ()
+fileCopyMany srcPath dstPaths = runResourceT @IO do
+    (_, srcHandle) <- binaryResource srcPath ReadMode
+    dstHandles <- forM dstPaths \p -> do
+        (_, h) <- binaryResource p WriteMode
+        pure h
+    forM_ dstHandles \dst -> do
+        liftIO $ hCopy srcHandle dst
