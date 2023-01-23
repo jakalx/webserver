@@ -17,6 +17,8 @@ import Test.Hspec.QuickCheck
 
 import Test.QuickCheck
 
+import Data.Attoparsec.ByteString qualified as P
+
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Builder qualified as BSB
@@ -124,3 +126,15 @@ spec = do
               Chunk (ChunkSize sz) _ -> sz
           in
             size == fromIntegral (BS.length bs)
+
+    describe "Chapter 13 - Parsing" do
+      describe "pRequestLine" do
+        it "fails with nice error message on invalid HTTP version" do
+          P.parseOnly pRequestLine "GET /hello HTTP1.1" `shouldBe` Left "Version: Failed reading: Expected HTTP/"
+
+      describe "pStatusLine" do
+        it "parses a valid StatusLine" do
+          P.parseOnly pStatusLine "HTTP/1.1 200 OK\r\n" `shouldBe` Right (status ok)
+  
+        it "fails with a helpful error message" do
+          P.parseOnly pStatusLine "HTTP/1.1 200  O\rK\r\n" `shouldBe` Left "StatusLine > ReasonPhrase: Failed reading: Reason may not contain CR or LF"

@@ -25,10 +25,15 @@ import Control.Monad.Trans.Resource (ReleaseKey, ResourceT, allocate, runResourc
 import Data.Aeson ((.=))
 import Data.Aeson qualified as J
 
+import Data.Attoparsec.ByteString (Parser, (<?>))
+import Data.Attoparsec.ByteString qualified as P
+
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as BSB
 import Data.ByteString.Conversion qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+
+import Data.Map.Strict qualified as Map
 
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
@@ -620,3 +625,140 @@ fileCopyMany srcPath dstPaths = runResourceT @IO do
         pure h
     forM_ dstHandles \dst -> do
         liftIO $ hCopy srcHandle dst
+
+-- Chapter 13 - Parsing
+
+newtype ResourceMap = ResourceMap (Map T.Text FilePath)
+
+resourceMap :: FilePath -> ResourceMap
+resourceMap dir =
+    ResourceMap $
+        Map.fromList
+            [ ("/stream", dir </> "stream.txt")
+            , ("/read", dir </> "read.txt")
+            ]
+
+-- let's define some basic parsers
+
+pSpace :: Parser BS.ByteString
+pSpace = P.string $ A.lift [A.Space]
+
+pLineEnd :: Parser BS.ByteString
+pLineEnd = P.string $ A.lift crlf
+
+pRequestLine :: Parser RequestLine
+pRequestLine = do
+    method <- pMethod <?> "Method"
+    _ <- pSpace <|> fail "Method should be followed by a single space"
+    target <- pRequestTarget <?> "Target"
+    _ <- pSpace <|> fail "Target should be followed by a single space"
+    version <- pHttpVersion <?> "Version"
+    _ <- pLineEnd <|> fail "Version should be followed by an end-of-line"
+    pure $ RequestLine method target version
+
+pMethod :: Parser Method
+pMethod = Method <$> pToken
+
+pToken :: Parser BS.ByteString
+pToken = do
+    token <- P.takeWhile isTchar
+    when (BS.null token) (fail "tchar expected")
+    pure token
+
+isTchar :: Word8 -> Bool
+isTchar c =
+    any
+        ($ c)
+        [ isTcharSymbol
+        , A.isLetter
+        , A.isDigit
+        ]
+
+isTcharSymbol :: Word8 -> Bool
+isTcharSymbol c = c `elem` tcharSymbols
+
+tcharSymbols :: [Word8]
+tcharSymbols =
+    A.lift
+        [ A.ExclamationMark
+        , A.NumberSign
+        , A.DollarSign
+        , A.PercentSign
+        , A.Ampersand
+        , A.Apostrophe
+        , A.Asterisk
+        , A.PlusSign
+        , A.HyphenMinus
+        , A.FullStop
+        , A.Caret
+        , A.Underscore
+        , A.GraveAccent
+        , A.VerticalLine
+        , A.Tilde
+        ]
+
+pRequestTarget :: Parser RequestTarget
+pRequestTarget = do
+    target <- P.takeWhile A.isVisible
+    when (BS.null target) (fail "vchar expected")
+    pure $ RequestTarget target
+
+pHttpVersion :: Parser HttpVersion
+pHttpVersion = do
+    _ <- P.string [A.string|HTTP/|] <|> fail "Expected HTTP/"
+    major <- pDigit <?> "major"
+    _ <- P.string $ A.lift [A.FullStop]
+    minor <- pDigit <?> "minor"
+    pure $ HttpVersion major minor
+
+pDigit :: Parser A.Digit
+pDigit = do
+    x <- P.anyWord8
+    case A.word8ToDigitMaybe x of
+        Just d -> pure d
+        Nothing -> fail "0-9 expected"
+
+readRequestLine :: MonadIO m => MaxChunkSize -> Socket -> m (P.Result RequestLine)
+readRequestLine (MaxChunkSize mcs) s =
+    P.parseWith (liftIO $ S.recv s mcs) pRequestLine BS.empty
+
+resourceServer :: IO ()
+resourceServer = do
+    dir <- getDataDir
+    let resources = resourceMap dir
+    let maxChunkSize = MaxChunkSize 1024
+    serve @IO HostAny "8000" \(s, _) ->
+        serveResourceOnce resources maxChunkSize s
+
+serveResourceOnce :: ResourceMap -> MaxChunkSize -> Socket -> IO ()
+serveResourceOnce resources maxChunkSize s = runResourceT @IO do
+    result <- P.eitherResult <$> readRequestLine maxChunkSize s
+    case result of
+        Right (RequestLine _ target _) -> do
+            case getTargetFilePath resources target of
+                Just fp -> do
+                    (_, h) <- binaryResource fp ReadMode
+                    liftIO $ sendStreamingResponse s $ hStreamingResponse h maxChunkSize
+                Nothing ->
+                    putStrLn $ "no such resource: " <> show target
+        Left err ->
+            putStrLn err
+
+getTargetFilePath :: ResourceMap -> RequestTarget -> Maybe FilePath
+getTargetFilePath (ResourceMap r) (RequestTarget t) = do
+    resource <- A.convertStringMaybe t
+    Map.lookup resource r
+
+-- exercise 37 - parse status line
+
+pStatusLine :: Parser StatusLine
+pStatusLine = (StatusLine <$> pHttpVersion <* pSpace <*> pStatusCode <* pSpace <*> pReasonPhrase) <?> "StatusLine"
+
+pStatusCode :: Parser StatusCode
+pStatusCode = (StatusCode <$> pDigit <*> pDigit <*> pDigit) <?> "StatusCode"
+
+pReasonPhrase :: Parser ReasonPhrase
+pReasonPhrase = (ReasonPhrase <$> (pReason <* pLineEnd) <|> fail "Reason may not contain CR or LF") <?> "ReasonPhrase"
+  where
+    pReason = P.takeWhile (not . isCRorLF)
+    isCRorLF c = c == A.lift A.CarriageReturn || c == A.lift A.LineFeed
