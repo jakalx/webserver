@@ -52,6 +52,8 @@ import Text.Blaze.Html (Html, toHtml)
 import Text.Blaze.Html.Renderer.Utf8 (renderHtml)
 import Text.Blaze.Html5 qualified as HTML
 
+import Unfork (unforkAsyncIO_)
+
 import Network.Socket (Socket)
 import Network.Socket qualified as S
 import Network.Socket.ByteString qualified as S
@@ -180,11 +182,11 @@ openAndConnect addr = do
 
 -- Chapter 6 - HTTP data types
 data Request
-    = Request RequestLine [HeaderField] (Maybe MessageBody)
+    = Request RequestLine Headers (Maybe MessageBody)
     deriving (Eq, Show)
 
 data Response
-    = Response StatusLine [HeaderField] (Maybe MessageBody)
+    = Response StatusLine Headers (Maybe MessageBody)
     deriving (Eq, Show)
 
 data RequestLine = RequestLine Method RequestTarget HttpVersion
@@ -205,6 +207,8 @@ data StatusCode = StatusCode A.Digit A.Digit A.Digit
 newtype ReasonPhrase = ReasonPhrase BS.ByteString
     deriving (Eq, Show)
 
+type Headers = [HeaderField]
+
 data HeaderField = HeaderField FieldName FieldValue
     deriving (Eq, Show)
 
@@ -220,16 +224,15 @@ newtype MessageBody = MessageBody LBS.ByteString
 data HttpVersion = HttpVersion A.Digit A.Digit
     deriving (Eq, Show)
 
--- excercise 16
-
-helloResponse :: Response
-helloResponse = Response statusLine [typ, len] (Just (MessageBody "Hello!"))
-  where
-    statusLine = StatusLine http_1_1 (StatusCode Digit2 Digit0 Digit0) (ReasonPhrase "OK")
-    typ = contentType plainAscii
-    len = HeaderField (FieldName "Content-Length") (FieldValue "6")
-
 -- Chapter 7 - Encoding
+class Encode a where
+    encode :: a -> BSB.Builder
+
+instance Encode Request where
+    encode = encodeRequest
+
+instance Encode Response where
+    encode = encodeResponse
 
 crlf :: [A.Char]
 crlf = [A.CarriageReturn, A.LineFeed]
@@ -287,10 +290,10 @@ repeatedlyEncode = foldMap
 optionallyEncode :: (a -> BSB.Builder) -> Maybe a -> BSB.Builder
 optionallyEncode = foldMap
 
-encodeHeaders :: [HeaderField] -> BSB.Builder
+encodeHeaders :: Headers -> BSB.Builder
 encodeHeaders = (<> encodeLineEnd) . repeatedlyEncode encodeHeaderField
 
-encodeTrailers :: [HeaderField] -> BSB.Builder
+encodeTrailers :: Headers -> BSB.Builder
 encodeTrailers = encodeHeaders
 
 encodeResponse :: Response -> BSB.Builder
@@ -341,6 +344,36 @@ ok =
     Status
         (StatusCode Digit2 Digit0 Digit0)
         (ReasonPhrase [A.string|OK|])
+
+badRequest :: Status
+badRequest =
+    Status
+        (StatusCode Digit4 Digit0 Digit0)
+        (ReasonPhrase [A.string|Bad request|])
+
+notFound :: Status
+notFound =
+    Status
+        (StatusCode Digit4 Digit0 Digit4)
+        (ReasonPhrase [A.string|Not found|])
+
+methodNotAllowed :: Status
+methodNotAllowed =
+    Status
+        (StatusCode Digit4 Digit0 Digit5)
+        (ReasonPhrase [A.string|Method not allowed|])
+
+serverError :: Status
+serverError =
+    Status
+        (StatusCode Digit5 Digit0 Digit4)
+        (ReasonPhrase [A.string|Server error|])
+
+versionNotSupported :: Status
+versionNotSupported =
+    Status
+        (StatusCode Digit5 Digit0 Digit5)
+        (ReasonPhrase [A.string|HTTP version not supported|])
 
 status :: Status -> StatusLine
 status (Status code phrase) = StatusLine http_1_1 code phrase
@@ -396,11 +429,7 @@ countHelloText :: Natural -> LT.Text
 countHelloText count = countHelloGreeting <> "\r\n" <> countHelloMessage count
 
 textOk :: LT.Text -> Response
-textOk str = Response (status ok) [typ, len] (Just body)
-  where
-    typ = contentType plainUtf8
-    len = contentLength . bodyLength $ body
-    body = MessageBody $ LT.encodeUtf8 str
+textOk = textResponse ok mempty
 
 stuckCountingServerText :: IO ()
 stuckCountingServerText = serve @IO HostAny "8000" \(s, _) -> do
@@ -545,7 +574,7 @@ sendBSB s = Net.sendLazy s . BSB.toLazyByteString
 
 -- Chapter 12
 
-data StreamingResponse = StreamingResponse StatusLine [HeaderField] (Maybe ChunkedBody)
+data StreamingResponse = StreamingResponse StatusLine Headers (Maybe ChunkedBody)
 
 newtype ChunkedBody = ChunkedBody (ListT IO Chunk)
 newtype MaxChunkSize = MaxChunkSize Int
@@ -762,3 +791,130 @@ pReasonPhrase = (ReasonPhrase <$> (pReason <* pLineEnd) <|> fail "Reason may not
   where
     pReason = P.takeWhile (not . isCRorLF)
     isCRorLF c = c == A.lift A.CarriageReturn || c == A.lift A.LineFeed
+
+-- Chapter 14
+
+textResponse :: Status -> Headers -> LT.Text -> Response
+textResponse s headers str = Response (status s) (typ : len : headers) (Just body)
+  where
+    typ = contentType plainUtf8
+    len = contentLength . bodyLength $ body
+    body = MessageBody $ LT.encodeUtf8 str
+
+newtype LogEvent = LogEvent LT.Text
+    deriving (Show, Eq)
+
+data Error = Error (Maybe Response) [LogEvent]
+    deriving (Show, Eq)
+
+requestParseError :: String -> Error
+requestParseError parseError = Error (pure response) (pure event)
+  where
+    response = textResponse badRequest [] message
+    event = LogEvent message
+    message = TB.toLazyText $ "Malformed request: " <> TB.fromString parseError
+
+notFoundError :: Error
+notFoundError = Error (pure response) mempty
+  where
+    response = textResponse notFound [] message
+    message = "The droids you are looking for are not here."
+
+versionError :: [HttpVersion] -> Error
+versionError supportedVersions = Error (pure response) mempty
+  where
+    response = textResponse versionNotSupported [allow] LT.empty
+    allow = HeaderField (FieldName [A.string|Allow|]) (FieldValue versions)
+    versions = BS.intercalate (A.lift [A.Comma, A.Space]) $ map (\(HttpVersion major minor) -> [A.string|HTTP/|] <> A.lift [A.lift major, A.FullStop, A.lift minor]) supportedVersions
+
+methodError :: [Method] -> Error
+methodError supportedMethods = Error (pure response) mempty
+  where
+    response = textResponse methodNotAllowed [allow] LT.empty
+    allow = HeaderField (FieldName [A.string|Allow|]) (FieldValue methods)
+    methods = BS.intercalate (A.lift [A.Comma, A.Space]) $ map (\(Method m) -> m) supportedMethods
+
+fileOpenError :: FilePath -> Ex.IOException -> Error
+fileOpenError fp ex = Error (pure response) (pure event)
+  where
+    response = textResponse serverError [] "Something went wrong"
+    event =
+        LogEvent $
+            TB.toLazyText $
+                mconcat
+                    [ "Failed to open file path "
+                    , show fp
+                    , ": "
+                    , TB.fromString $ displayException ex
+                    ]
+
+lateError :: Ex.IOException -> Error
+lateError ex = Error Nothing (pure event)
+  where
+    event = LogEvent $ LT.pack $ displayException ex
+
+printLogEvent :: LogEvent -> IO ()
+printLogEvent (LogEvent msg) = putLText $ "⚠: " <> msg <> "\n"
+
+resourceServerX :: IO ()
+resourceServerX = do
+    dir <- getDataDir
+    let resources = resourceMap dir
+    let maxChunkSize = MaxChunkSize 1024
+    unforkAsyncIO_ printLogEvent \log ->
+        serve @IO HostAny "8000" \(s, _) -> do
+            result <- serveResourceOnceX resources maxChunkSize s
+            case result of
+                Left e -> handleError log s e
+                Right _ -> pure ()
+
+handleError :: (LogEvent -> IO ()) -> Socket -> Error -> IO ()
+handleError log s (Error response events) = do
+    traverse_ log events
+    traverse_ (sendResponse s) response
+
+serveResourceOnceX :: ResourceMap -> MaxChunkSize -> Socket -> IO (Either Error ())
+serveResourceOnceX resources maxChunkSize s = runResourceT @IO $ runExceptT @Error @(ResourceT IO) do
+    RequestLine method target version <- ExceptT $ readRequestLineX maxChunkSize s
+    _ <- ExceptT $ pure $ requireVersion http_1_1 version
+    _ <- ExceptT $ pure $ requireMethodX [Method "GET"] method
+    fp <- ExceptT $ pure $ getTargetFilePathX resources target
+    (_, h) <- ExceptT $ binaryResourceX fp ReadMode
+    let r = hStreamingResponse h maxChunkSize
+    ExceptT $ liftIO $ sendStreamingResponseX s r
+
+readRequestLineX :: MonadIO m => MaxChunkSize -> Socket -> m (Either Error RequestLine)
+readRequestLineX (MaxChunkSize mcs) s = do
+    result <- P.eitherResult <$> P.parseWith (liftIO $ S.recv s mcs) pRequestLine BS.empty
+    pure $ either (Left . requestParseError) Right result
+
+binaryResourceX :: (MonadIO m, Ex.MonadCatch m) => FilePath -> IOMode -> ResourceT m (Either Error (ReleaseKey, Handle))
+binaryResourceX fp mode = do
+    result <- Ex.tryIO $ binaryResource fp mode
+    pure $ either (Left . fileOpenError fp) Right result
+
+requireVersion :: HttpVersion -> HttpVersion -> Either Error ()
+requireVersion supportedVersion x =
+    if x == supportedVersion
+        then Right ()
+        else Left (versionError [supportedVersion])
+
+requireMethodX :: [Method] -> Method -> Either Error ()
+requireMethodX supportedMethods x =
+    if x `elem` supportedMethods
+        then Right ()
+        else Left (methodError supportedMethods)
+
+getTargetFilePathX :: ResourceMap -> RequestTarget -> Either Error FilePath
+getTargetFilePathX (ResourceMap r) (RequestTarget t) = do
+    resource <- maybe (Left notFoundError) Right $ A.convertStringMaybe t
+    case Map.lookup resource r of
+        Just fp -> Right fp
+        Nothing -> Left notFoundError
+
+sendStreamingResponseX :: Socket -> StreamingResponse -> IO (Either Error ())
+sendStreamingResponseX s r = do
+    result <- Ex.tryIO $ runListT do
+        bs <- encodeStreamingResponse r
+        Net.send s bs
+    pure $ either (Left . lateError) Right result

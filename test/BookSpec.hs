@@ -30,6 +30,14 @@ helloRequest = Request start [host, lang] Nothing
     host = HeaderField (FieldName "Host") (FieldValue "www.example.com")
     lang = HeaderField (FieldName "Accept-Language") (FieldValue "en, mi")
 
+-- excercise 16
+
+helloResponse :: Response
+helloResponse = Response (status ok) [typ, len] (Just (MessageBody "Hello!"))
+  where
+    typ = contentType plainAscii
+    len = HeaderField (FieldName "Content-Length") (FieldValue "6")
+
 balanced :: Eq a => [(a, a)] -> [a] -> Bool
 balanced pairs list = go [] (filter isRelevant list)
   where
