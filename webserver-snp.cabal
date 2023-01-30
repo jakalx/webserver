@@ -17,7 +17,7 @@ extra-source-files:
 library
   exposed-modules:
       Book
-      Practice
+      Validation
   other-modules:
       Paths_webserver_snp
   hs-source-dirs:
@@ -90,9 +90,9 @@ test-suite spec
   main-is: Spec.hs
   other-modules:
       BookSpec
-      PracticeSpec
+      ValidationSpec
       Book
-      Practice
+      Validation
       Paths_webserver_snp
   hs-source-dirs:
       test
