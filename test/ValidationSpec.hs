@@ -36,18 +36,18 @@ spec = do
                 len = 10 + (abs n `rem` (21 - 10))
                 p = replicate len c
              in
-                checkPasswordLength p `shouldBe` Just p
+                checkPasswordLength p `shouldBe` Right p
 
         prop "rejects passwords longer than 20 characters" \(str, c) ->
             let
                 suffix = replicate 21 c
                 p = str <> suffix
              in
-                checkPasswordLength p `shouldBe` Nothing
+                checkPasswordLength p `shouldBe` Left "password must be between 10 and 20 characters long"
 
     describe "requireAlphaNum" do
         prop "considers alpha-numerical characters as valid" \str ->
-            requireAlphaNum (filter Char.isAlphaNum str) `shouldSatisfy` isJust
+            requireAlphaNum (filter Char.isAlphaNum str) `shouldSatisfy` isRight
 
     describe "cleanWhiteSpace" do
         prop "removes leading whitespace" \(n, str) ->
@@ -56,12 +56,12 @@ spec = do
                 ws = replicate n ' '
                 p = ws <> str'
              in
-                cleanWhiteSpace p `shouldBe` Just str'
+                cleanWhiteSpace p `shouldBe` Right str'
 
     describe "validatePassword" do
         it "rejects empty or whitespace only passwords" do
-            validatePassword "" `shouldBe` Nothing
-            validatePassword (replicate 10 ' ') `shouldBe` Nothing
+            validatePassword "" `shouldBe` Left "password was empty or contained only whitespace"
+            validatePassword (replicate 10 ' ') `shouldBe` Left "password was empty or contained only whitespace"
 
         it "accepts valid password" do
-            validatePassword " abcdefghijkl1234" `shouldBe` Just (Password "abcdefghijkl1234")
+            validatePassword " abcdefghijkl1234" `shouldBe` Right (Password "abcdefghijkl1234")

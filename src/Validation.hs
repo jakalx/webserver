@@ -25,32 +25,30 @@ checkAnagram word1 word2 =
         then "The words are anagrams"
         else "The words are not anagrams"
 
--- chapter 3
+-- chapter 5
 
--- we use a newtype in order to keep the proof that we had a valid password
-  
-checkPasswordLength :: String -> Maybe String
+checkPasswordLength :: String -> Either String String
 checkPasswordLength s = if length s > 20 || length s < 10
-                        then Nothing
-                        else Just s
+                        then Left "password must be between 10 and 20 characters long"
+                        else Right s
 
-requireAlphaNum :: String -> Maybe String
+requireAlphaNum :: String -> Either String String
 requireAlphaNum str = if all Char.isAlphaNum str
-                      then Just str
-                      else Nothing  
+                      then Right str
+                      else Left "password must only contain letters and numbers"
 
-cleanWhiteSpace :: String -> Maybe String
+cleanWhiteSpace :: String -> Either String String
 cleanWhiteSpace str =
   case dropWhile Char.isSpace str of
-    "" -> Nothing
-    str' -> Just str'
+    "" -> Left "password was empty or contained only whitespace"
+    str' -> Right str'
 
 -- chapter 4 - using the Maybe monad
 
 newtype Password = Password String
   deriving (Show, Eq)
 
-validatePassword :: String -> Maybe Password
+validatePassword :: String -> Either String Password
 validatePassword p =
   cleanWhiteSpace p
         >>= requireAlphaNum
