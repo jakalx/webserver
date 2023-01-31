@@ -43,7 +43,7 @@ spec = do
                 suffix = replicate 21 c
                 p = str <> suffix
              in
-                checkPasswordLength p `shouldBe` Left "password must be between 10 and 20 characters long"
+                checkPasswordLength p `shouldBe` Left (Error "must be between (10,20) characters long")
 
     describe "requireAlphaNum" do
         prop "considers alpha-numerical characters as valid" \str ->
@@ -60,8 +60,16 @@ spec = do
 
     describe "validatePassword" do
         it "rejects empty or whitespace only passwords" do
-            validatePassword "" `shouldBe` Left "password was empty or contained only whitespace"
-            validatePassword (replicate 10 ' ') `shouldBe` Left "password was empty or contained only whitespace"
+            validatePassword "" `shouldBe` Left (Error "empty or only whitespace")
+            validatePassword (replicate 10 ' ') `shouldBe` Left (Error "empty or only whitespace")
 
         it "accepts valid password" do
             validatePassword " abcdefghijkl1234" `shouldBe` Right (Password "abcdefghijkl1234")
+
+    describe "validateUsername" do
+        it "rejects empty or whitespace only usernames" do
+            validateUsername "" `shouldBe` Left (Error "empty or only whitespace")
+            validateUsername (replicate 10 ' ') `shouldBe` Left (Error "empty or only whitespace")
+
+        it "accepts valid username" do
+            validateUsername "johndoe" `shouldBe` Right (Username "johndoe")
