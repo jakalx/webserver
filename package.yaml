@@ -30,6 +30,7 @@ dependencies:
   - text ^>= 1.2.4.1
   - time
   - unfork ^>= 1.0
+  - validation
 
 ghc-options:
   - -Wall

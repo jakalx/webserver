@@ -8,6 +8,9 @@ import Relude
 import Data.Char qualified as Char
 import Data.Ix (inRange)
 
+import Data.Validation
+-- import Data.List.NonEmpty qualified as NE
+
 isAnagram :: String -> String -> Bool
 isAnagram xs ys = sort xs == sort ys
 
@@ -29,46 +32,47 @@ checkAnagram word1 word2 =
 newtype Password = Password String
   deriving (Show, Eq)
 
-newtype Error = Error String
-  deriving (Show, Eq)
+newtype Error = Error [String]
+  deriving (Show, Eq, Semigroup)
 
 newtype Username = Username String
   deriving (Show, Eq)
 
-checkLength :: (Word32, Word32) -> String -> Either Error String
-checkLength range str = if inRange range (fromIntegral $ length str)
-                        then Right str
-                        else Left $ Error ("must be between " <> show range <> " characters long")
+failWith :: String -> Validation Error a
+failWith = Failure . Error . pure
 
-checkPasswordLength :: String -> Either Error String
+checkLength :: (Word32, Word32) -> String -> Validation Error String
+checkLength range str = if inRange range (fromIntegral $ length str)
+                        then Success str
+                        else failWith ("must be between " <> show range <> " characters long")
+
+checkPasswordLength :: String -> Validation Error String
 checkPasswordLength = checkLength (10, 20)
 
-checkUsernameLength :: String -> Either Error String
+checkUsernameLength :: String -> Validation Error String
 checkUsernameLength = checkLength (3, 12)
 
-requireAlphaNum :: String -> Either Error String
+requireAlphaNum :: String -> Validation Error String
 requireAlphaNum str = if all Char.isAlphaNum str
-                      then Right str
-                      else Left $ Error "must only contain letters and numbers"
+                      then Success str
+                      else failWith "must only contain letters and numbers"
 
-cleanWhiteSpace :: String -> Either Error String
+cleanWhiteSpace :: String -> Validation Error String
 cleanWhiteSpace str =
   case dropWhile Char.isSpace str of
-    "" -> Left $ Error "empty or only whitespace"
-    str' -> Right str'
+    "" -> failWith "empty or only whitespace"
+    str' -> Success str'
 
-validatePassword :: String -> Either Error Password
-validatePassword p =
-  cleanWhiteSpace p
-        >>= requireAlphaNum
-        >>= checkPasswordLength
+validatePassword :: String -> Validation Error Password
+validatePassword p = case cleanWhiteSpace p of
+  Failure err -> Failure err
+  Success p' -> requireAlphaNum p' *> checkPasswordLength p'
         <&> Password
 
-validateUsername :: String -> Either Error Username
-validateUsername u =
-  cleanWhiteSpace u
-        >>= requireAlphaNum
-        >>= checkUsernameLength
+validateUsername :: String -> Validation Error Username
+validateUsername u = case cleanWhiteSpace u of
+  Failure err -> Failure err
+  Success u' -> requireAlphaNum u' *> checkUsernameLength u'
         <&> Username
 
 -- exercise 11 - bindMaybe
@@ -82,6 +86,6 @@ bindMaybe (Just x) f = f x
 data User = User Username Password
   deriving (Show, Eq)
 
-makeUser :: String -> String -> Either Error User
+makeUser :: String -> String -> Validation Error User
 makeUser username password =
   User <$> validateUsername username <*> validatePassword password
