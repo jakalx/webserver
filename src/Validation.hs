@@ -1,4 +1,7 @@
 -- | Module for the book "Finding Success (and Failure) in Haskell"
+
+{-# LANGUAGE OverloadedStrings #-}
+
 module Validation where
 
 import Prelude ()
@@ -9,7 +12,7 @@ import Data.Char qualified as Char
 import Data.Ix (inRange)
 
 import Data.Validation
--- import Data.List.NonEmpty qualified as NE
+import Data.Text qualified as T
 
 isAnagram :: String -> String -> Bool
 isAnagram xs ys = sort xs == sort ys
@@ -29,47 +32,47 @@ checkAnagram word1 word2 =
         then "The words are anagrams"
         else "The words are not anagrams"
 
-newtype Password = Password String
+newtype Password = Password Text
   deriving (Show, Eq)
 
-newtype Error = Error [String]
+newtype Error = Error [Text]
   deriving (Show, Eq, Semigroup)
 
-newtype Username = Username String
+newtype Username = Username Text
   deriving (Show, Eq)
 
-failWith :: String -> Validation Error a
+failWith :: Text -> Validation Error a
 failWith = Failure . Error . pure
 
-checkLength :: (Word32, Word32) -> String -> Validation Error String
-checkLength range str = if inRange range (fromIntegral $ length str)
+checkLength :: (Word32, Word32) -> Text -> Validation Error Text
+checkLength range str = if inRange range (fromIntegral $ T.length str)
                         then Success str
-                        else failWith ("must be between " <> show range <> " characters long")
+                        else failWith ("must be between " <> T.pack (show range) <> " characters long")
 
-checkPasswordLength :: String -> Validation Error String
+checkPasswordLength :: Text -> Validation Error Text
 checkPasswordLength = checkLength (10, 20)
 
-checkUsernameLength :: String -> Validation Error String
+checkUsernameLength :: Text -> Validation Error Text
 checkUsernameLength = checkLength (3, 12)
 
-requireAlphaNum :: String -> Validation Error String
-requireAlphaNum str = if all Char.isAlphaNum str
+requireAlphaNum :: Text -> Validation Error Text
+requireAlphaNum str = if T.all Char.isAlphaNum str
                       then Success str
                       else failWith "must only contain letters and numbers"
 
-cleanWhiteSpace :: String -> Validation Error String
+cleanWhiteSpace :: Text -> Validation Error Text
 cleanWhiteSpace str =
-  case dropWhile Char.isSpace str of
+  case T.dropWhile Char.isSpace str of
     "" -> failWith "empty or only whitespace"
     str' -> Success str'
 
-validatePassword :: String -> Validation Error Password
+validatePassword :: Text -> Validation Error Password
 validatePassword p = case cleanWhiteSpace p of
   Failure err -> Failure err
   Success p' -> requireAlphaNum p' *> checkPasswordLength p'
         <&> Password
 
-validateUsername :: String -> Validation Error Username
+validateUsername :: Text -> Validation Error Username
 validateUsername u = case cleanWhiteSpace u of
   Failure err -> Failure err
   Success u' -> requireAlphaNum u' *> checkUsernameLength u'
@@ -86,6 +89,6 @@ bindMaybe (Just x) f = f x
 data User = User Username Password
   deriving (Show, Eq)
 
-makeUser :: String -> String -> Validation Error User
+makeUser :: Text -> Text -> Validation Error User
 makeUser username password =
   User <$> validateUsername username <*> validatePassword password

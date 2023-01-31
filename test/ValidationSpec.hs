@@ -11,6 +11,8 @@ import Validation
 
 import Data.Char qualified as Char
 
+import Data.Text qualified as T
+
 import Test.Hspec
 import Test.Hspec.QuickCheck
 
@@ -35,20 +37,20 @@ spec = do
         prop "accepts passwords between 10 and 20 chars" \(n, c) ->
             let
                 len = 10 + (abs n `rem` (21 - 10))
-                p = replicate len c
+                p = T.pack $ replicate len c
              in
                 checkPasswordLength p `shouldBe` Success p
 
         prop "rejects passwords longer than 20 characters" \(str, c) ->
             let
                 suffix = replicate 21 c
-                p = str <> suffix
+                p = T.pack $ str <> suffix
              in
                 checkPasswordLength p `shouldBe` failWith "must be between (10,20) characters long"
 
     describe "requireAlphaNum" do
         prop "considers alpha-numerical characters as valid" \str ->
-            let p = filter Char.isAlphaNum str
+            let p = T.pack $ filter Char.isAlphaNum str
              in requireAlphaNum p `shouldBe` Success p
 
     describe "cleanWhiteSpace" do
@@ -56,14 +58,14 @@ spec = do
             let
                 str' = 'a' : str
                 ws = replicate n ' '
-                p = ws <> str'
+                p = T.pack $ ws <> str'
              in
-                cleanWhiteSpace p `shouldBe` Success str'
+                cleanWhiteSpace p `shouldBe` Success (T.pack str')
 
     describe "validatePassword" do
         it "rejects empty or whitespace only passwords" do
             validatePassword "" `shouldBe` failWith "empty or only whitespace"
-            validatePassword (replicate 10 ' ') `shouldBe` failWith "empty or only whitespace"
+            validatePassword (T.replicate 10 " ") `shouldBe` failWith "empty or only whitespace"
 
         it "accepts valid password" do
             validatePassword " abcdefghijkl1234" `shouldBe` Success (Password "abcdefghijkl1234")
@@ -71,7 +73,7 @@ spec = do
     describe "validateUsername" do
         it "rejects empty or whitespace only usernames" do
             validateUsername "" `shouldBe` failWith "empty or only whitespace"
-            validateUsername (replicate 10 ' ') `shouldBe` failWith "empty or only whitespace"
+            validateUsername (T.replicate 10 " ") `shouldBe` failWith "empty or only whitespace"
 
         it "accepts valid username" do
             validateUsername "johndoe" `shouldBe` Success (Username "johndoe")
